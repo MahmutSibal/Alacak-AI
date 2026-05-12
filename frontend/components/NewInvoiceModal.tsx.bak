@@ -1,0 +1,474 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, FileText, Loader2, AlertCircle, CheckCircle, Upload, Brain } from "lucide-react";
+import { createInvoice, getCustomers, type InvoiceCreatePayload } from "@/lib/api";
+
+interface NewInvoiceModalProps {
+  open: boolean;
+  onClose: () => void;
+  onCreated?: () => void;
+}
+
+interface Customer {
+  id?: string;
+  _id?: string;
+  isim?: string;
+  email?: string;
+  vergi_no?: string;
+}
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const plusDaysISO = (d: number) => {
+  const t = new Date();
+  t.setDate(t.getDate() + d);
+  return t.toISOString().slice(0, 10);
+};
+
+const inputCls =
+  "w-full bg-bg/60 text-white text-sm px-3 py-2.5 rounded-lg border border-border " +
+  "focus:outline-none focus:border-primary/60 placeholder:text-muted/60";
+const labelCls = "block text-xs text-muted font-medium mb-1.5";
+
+export default function NewInvoiceModal({ open, onClose, onCreated }: NewInvoiceModalProps) {
+  const [tab, setTab] = useState<"manual" | "ocr">("manual");
+  const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+
+  const [faturaNo, setFaturaNo] = useState("");
+  const [firmaAdi, setFirmaAdi] = useState("");
+  const [musteriId, setMusteriId] = useState("");
+  const [vergiNo, setVergiNo] = useState("");
+  const [araToplam, setAraToplam] = useState("");
+  const [kdvOrani, setKdvOrani] = useState("20");
+  const [paraBirimi, setParaBirimi] = useState<"TRY" | "USD" | "EUR">("TRY");
+  const [duzenlemeTarihi, setDuzenlemeTarihi] = useState(todayISO());
+  const [vadeTarihi, setVadeTarihi] = useState(plusDaysISO(30));
+  const [aciklama, setAciklama] = useState("");
+
+  // Reset whenever modal reopens
+  useEffect(() => {
+    if (!open) return;
+    setTab("manual");
+    setFaturaNo("");
+    setFirmaAdi("");
+    setMusteriId("");
+    setVergiNo("");
+    setAraToplam("");
+    setKdvOrani("20");
+    setParaBirimi("TRY");
+    setDuzenlemeTarihi(todayISO());
+    setVadeTarihi(plusDaysISO(30));
+    setAciklama("");
+    setError(null);
+    setSuccess(false);
+    setDragActive(false);
+  }, [open]);
+
+  // Load customers once when opened
+  useEffect(() => {
+    if (!open) return;
+    getCustomers()
+      .then((data) => setCustomers(Array.isArray(data) ? data : []))
+      .catch(() => setCustomers([]));
+  }, [open]);
+
+  // Esc key closes
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !submitting && !uploading) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, submitting, uploading, onClose]);
+
+  // Live KDV + total calculation
+  const { kdvTutari, genelToplam } = useMemo(() => {
+    const ara = parseFloat(araToplam.replace(",", ".")) || 0;
+    const rate = parseFloat(kdvOrani) || 0;
+    const kdv = (ara * rate) / 100;
+    return {
+      kdvTutari: Number.isFinite(kdv) ? kdv : 0,
+      genelToplam: Number.isFinite(ara + kdv) ? ara + kdv : 0,
+    };
+  }, [araToplam, kdvOrani]);
+
+  // Auto-pick müşteri vergi_no when a customer is selected
+  const onCustomerChange = (id: string) => {
+    setMusteriId(id);
+    const c = customers.find((x) => (x.id || x._id) === id);
+    if (c?.isim && !firmaAdi) setFirmaAdi(c.isim);
+    if (c?.vergi_no && !vergiNo) setVergiNo(c.vergi_no);
+  };
+
+  const validate = (): string | null => {
+    if (!faturaNo.trim()) return "Fatura numarası zorunlu";
+    if (!firmaAdi.trim()) return "Müşteri/firma adı zorunlu";
+    const ara = parseFloat(araToplam.replace(",", "."));
+    if (!ara || ara <= 0) return "Ara toplam pozitif olmalı";
+    if (!duzenlemeTarihi) return "Düzenleme tarihi zorunlu";
+    if (!vadeTarihi) return "Vade tarihi zorunlu";
+    if (vadeTarihi < duzenlemeTarihi) return "Vade düzenleme tarihinden önce olamaz";
+    return null;
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    const v = validate();
+    if (v) {
+      setError(v);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload: InvoiceCreatePayload = {
+        fatura_no: faturaNo.trim(),
+        firma_adi: firmaAdi.trim(),
+        ara_toplam: parseFloat(araToplam.replace(",", ".")),
+        kdv_orani: parseInt(kdvOrani, 10) || 0,
+        kdv_tutari: Number(kdvTutari.toFixed(2)),
+        tutar: Number(genelToplam.toFixed(2)),
+        para_birimi: paraBirimi,
+        duzenleme_tarihi: duzenlemeTarihi,
+        vade_tarihi: vadeTarihi,
+        musteri_id: musteriId || undefined,
+        vergi_no: vergiNo.trim() || undefined,
+        aciklama: aciklama.trim() || undefined,
+      };
+      await createInvoice(payload);
+      setSuccess(true);
+      onCreated?.();
+      setTimeout(onClose, 700);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Kayıt başarısız";
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const fmtMoney = (n: number) =>
+    n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // OCR file upload handler
+  const handleFileUpload = async (file: File) => {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/invoices/upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) throw new Error("Upload başarısız");
+      const result = await response.json();
+      const parsed = result.parsed || {};
+
+      // Auto-fill form from OCR result
+      if (parsed.fatura_no) setFaturaNo(parsed.fatura_no);
+      if (parsed.firma_adi) setFirmaAdi(parsed.firma_adi);
+      if (parsed.vergi_no) setVergiNo(parsed.vergi_no);
+      if (parsed.ara_toplam) setAraToplam(String(parsed.ara_toplam));
+      if (parsed.kdv_orani) setKdvOrani(String(parsed.kdv_orani));
+      if (parsed.vade_tarihi) setVadeTarihi(parsed.vade_tarihi.split("T")[0]);
+      if (parsed.duzenleme_tarihi) setDuzenlemeTarihi(parsed.duzenleme_tarihi.split("T")[0]);
+      if (parsed.para_birimi && ["TRY", "USD", "EUR"].includes(parsed.para_birimi)) {
+        setParaBirimi(parsed.para_birimi as "TRY" | "USD" | "EUR");
+      }
+
+      setTab("manual"); // Switch to manual tab for final review
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "OCR işlemi başarısız";
+      setError(msg);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    const files = e.dataTransfer.files;
+    if (files && files[0]) {
+      handleFileUpload(files[0]);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => !submitting && onClose()}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.97 }}
+            transition={{ duration: 0.18 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-2xl bg-surface border border-border rounded-2xl shadow-2xl shadow-black/60 max-h-[90vh] flex flex-col"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center">
+                  <FileText className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-white font-semibold text-base leading-none">Yeni Fatura</h3>
+                <p className="text-muted text-xs mt-1">
+                  {tab === "manual" ? "Manuel fatura girişi" : "OCR ile fatura çıkarma"}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              disabled={submitting || uploading}
+              className="w-8 h-8 rounded-lg hover:bg-white/5 flex items-center justify-center text-muted hover:text-white disabled:opacity-50 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Tabs */}
+          <div className="px-6 pt-4 border-b border-border flex gap-2">
+            <button
+              onClick={() => setTab("manual")}
+              className={`px-4 py-2.5 text-sm font-medium rounded-lg transition-all ${
+                tab === "manual"
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "text-muted hover:text-white"
+              }`}
+            >
+              Manuel Giriş
+            </button>
+            <button
+              onClick={() => setTab("ocr")}
+              className={`px-4 py-2.5 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${
+                tab === "ocr"
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "text-muted hover:text-white"
+              }`}
+            >
+              <Brain className="w-4 h-4" />
+              AI ile Yükle
+                  </div>
+                  <div>
+                    <label className={labelCls}>Mevcut Müşteri</label>
+                    <select
+                      value={musteriId}
+                      onChange={(e) => onCustomerChange(e.target.value)}
+                      className={inputCls}
+                    >
+                      <option value="">— Seçilmedi —</option>
+                      {customers.map((c) => (
+                        <option key={c.id || c._id} value={c.id || c._id}>
+                          {c.isim || "İsimsiz"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Firma Adı *</label>
+                    <input
+                      value={firmaAdi}
+                      onChange={(e) => setFirmaAdi(e.target.value)}
+                      placeholder="ABC Ticaret Ltd. Şti."
+                      className={inputCls}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Vergi No</label>
+                    <input
+                      value={vergiNo}
+                      onChange={(e) => setVergiNo(e.target.value)}
+                      placeholder="1234567890"
+                      maxLength={11}
+                      className={inputCls}
+                    />
+                  </div>
+                </div>
+
+                {/* Money block */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className={labelCls}>Ara Toplam *</label>
+                    <input
+                      value={araToplam}
+                      onChange={(e) => setAraToplam(e.target.value)}
+                      placeholder="0,00"
+                      inputMode="decimal"
+                      className={inputCls}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>KDV %</label>
+                    <select
+                      value={kdvOrani}
+                      onChange={(e) => setKdvOrani(e.target.value)}
+                      className={inputCls}
+                    >
+                      <option value="0">%0</option>
+                      <option value="1">%1</option>
+                      <option value="10">%10</option>
+                      <option value="20">%20</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Para Birimi</label>
+                    <select
+                      value={paraBirimi}
+                      onChange={(e) => setParaBirimi(e.target.value as "TRY" | "USD" | "EUR")}
+                      className={inputCls}
+                    >
+                      <option value="TRY">TRY ₺</option>
+                      <option value="USD">USD $</option>
+                      <option value="EUR">EUR €</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Live total preview */}
+                <div className="bg-bg/40 border border-border rounded-xl p-4 space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted">Ara Toplam</span>
+                    <span className="text-white/80 font-mono">
+                      {fmtMoney(parseFloat(araToplam.replace(",", ".")) || 0)} {paraBirimi}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted">KDV (%{kdvOrani})</span>
+                    <span className="text-white/80 font-mono">
+                      {fmtMoney(kdvTutari)} {paraBirimi}
+                    </span>
+                  </div>
+                  <div className="border-t border-border pt-1.5 flex justify-between">
+                    <span className="text-white font-semibold text-sm">Genel Toplam</span>
+                    <span className="text-primary font-bold font-mono text-base">
+                      {fmtMoney(genelToplam)} {paraBirimi}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Dates */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Düzenleme Tarihi *</label>
+                    <input
+                      type="date"
+                      value={duzenlemeTarihi}
+                      onChange={(e) => setDuzenlemeTarihi(e.target.value)}
+                      className={inputCls}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Vade Tarihi *</label>
+                    <input
+                      type="date"
+                      value={vadeTarihi}
+                      onChange={(e) => setVadeTarihi(e.target.value)}
+                      min={duzenlemeTarihi}
+                      className={inputCls}
+                    />
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className={labelCls}>Açıklama</label>
+                  <textarea
+                    value={aciklama}
+                    onChange={(e) => setAciklama(e.target.value)}
+                    rows={2}
+                    placeholder="İsteğe bağlı not — sözleşme no, sipariş referansı, vb."
+                    className={`${inputCls} resize-none`}
+                  />
+                </div>
+
+                {/* Error / success */}
+                <AnimatePresence>
+                  {error && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-danger/10 border border-danger/30 text-danger text-sm"
+                    >
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>{error}</span>
+                    </motion.div>
+                  )}
+                  {success && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-success/10 border border-success/30 text-success text-sm"
+                    >
+                      <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>Fatura kaydedildi.</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border bg-bg/30">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={submitting}
+                  className="px-4 py-2 text-sm text-muted hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-medium bg-primary text-bg rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Kaydediliyor…
+                    </>
+                  ) : (
+                    "Faturayı Kaydet"
+                  )}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}

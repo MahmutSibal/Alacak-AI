@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ----------------------------------------------------------------------
+ * Theme tokens.
+ *
+ * Every color is stored as space-separated RGB triplets so Tailwind's
+ * `<alpha-value>` placeholder can layer opacity (e.g. text-white/80).
+ *
+ * Single source of truth: change these and the entire UI follows.
+ * --------------------------------------------------------------------- */
+
+/* DARK theme (default — preserves the original premium fintech look) */
+:root,
+.dark {
+  --color-bg:         11  16  32;     /* page background */
+  --color-surface:    17  24  39;     /* cards / panels */
+  --color-border:     31  41  55;     /* separators */
+  --color-muted:     107 114 128;     /* secondary text */
+  --color-foreground:255 255 255;     /* main text  (replaces literal white) */
+
+  --color-primary:    20 184 166;
+  --color-accent:     56 189 248;
+  --color-danger:    239  68  68;
+  --color-warning:   245 158  11;
+  --color-success:    34 197  94;
+  --color-on-primary:255 255 255;     /* primary teal zemini için her zaman beyaz */
+
+  --color-glass-bg:   17  24  39;
+  --color-glass-alpha: 0.70;
+
+  --grid-line: rgba(20, 184, 166, 0.04);
+  --autofill-bg: #111827;
+  --autofill-fg: #F9FAFB;
+}
+
+/* LIGHT theme — soft cream/white surfaces, deep slate text */
+.light {
+  --color-bg:        248 250 252;     /* slate-50 */
+  --color-surface:   255 255 255;     /* white */
+  --color-border:    226 232 240;     /* slate-200 */
+  --color-muted:     100 116 139;     /* slate-500 */
+  --color-foreground: 15  23  42;     /* slate-900 — main text in light mode */
+
+  --color-primary:    13 148 136;     /* teal-600, slightly darker than dark mode for contrast */
+  --color-accent:      2 132 199;     /* sky-600 */
+  --color-danger:    220  38  38;     /* red-600 */
+  --color-warning:   217 119   6;     /* amber-600 */
+  --color-success:    22 163  74;     /* green-600 */
+
+  --color-glass-bg:  255 255 255;
+  --color-glass-alpha: 0.85;
+
+  --grid-line: rgba(13, 148, 136, 0.06);
+  --autofill-bg: #FFFFFF;
+  --autofill-fg: #0F172A;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  background-color: rgb(var(--color-bg));
+  color: rgb(var(--color-foreground));
+  font-family: Inter, system-ui, sans-serif;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(var(--color-bg));
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-border));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-muted) / 0.6);
+}
+
+@layer utilities {
+  .glow-primary { box-shadow: 0 0 20px rgb(var(--color-primary) / 0.25); }
+  .glow-accent  { box-shadow: 0 0 20px rgb(var(--color-accent) / 0.25); }
+  .glow-danger  { box-shadow: 0 0 20px rgb(var(--color-danger) / 0.25); }
+
+  .glass {
+    background: rgb(var(--color-glass-bg) / var(--color-glass-alpha));
+    backdrop-filter: blur(12px);
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .perspective { perspective: 1200px; }
+  .hero-card { animation: float 5s ease-in-out infinite; }
+  .pulse-sheen { position: relative; overflow: hidden; }
+  .pulse-sheen::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent); transform: translateX(-120%); transition: transform 1.6s ease; }
+  .pulse-sheen:hover::after { transform: translateX(120%); }
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+  100% { transform: translateY(0px); }
+}
+
+/* Auth page autofill — colors follow the active theme */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--autofill-bg) inset !important;
+  -webkit-text-fill-color: var(--autofill-fg) !important;
+  border-color: rgb(var(--color-border)) !important;
+}
